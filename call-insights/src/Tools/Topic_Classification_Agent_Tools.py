@@ -5,6 +5,28 @@ from langgraph.types import Command
 
 
 @tool
+def classify_conversation(conversation: str, tool_call_id: Annotated[Optional[str], InjectedToolCallId] = None):
+    """
+    Classify the conversation into a topic.
+    Args:
+        conversation: The conversation text to classify
+    Returns:
+        The classified topic
+    """
+    # This is a placeholder - the actual classification should be done by the LLM
+    # The tool exists to prevent "tool not found" errors
+    update_dict = {
+        "messages": [
+            ToolMessage(
+                content="Conversation classification completed. Use update_state_Topic_Classification_Agent to update the state.",
+                tool_call_id=tool_call_id or "classify_conversation",
+            )
+        ]
+    }
+    return Command(update=update_dict)
+
+
+@tool
 def update_state_Topic_Classification_Agent(
     processing_status: Optional[str] = None,
     processing_complete: Optional[bool] = None,

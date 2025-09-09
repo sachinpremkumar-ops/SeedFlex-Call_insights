@@ -2,6 +2,7 @@ import logging
 from langchain_core.messages import SystemMessage
 from dotenv import load_dotenv
 import os
+
 load_dotenv()
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -39,23 +40,40 @@ def truncate_messages_for_context(messages, max_tokens=7000):
         # Fallback: return last 5 messages
         return messages[-5:] if len(messages) > 5 else messages
 
+
 def safe_model_invoke(model, messages, max_retries=3):
     """Safely invoke model with context management"""
+    last_error = None
+    
+    # Try primary model with retries
     for attempt in range(max_retries):
         try:
             # Truncate messages if needed
             truncated_messages = truncate_messages_for_context(messages)
             
-            # Invoke model
+            # Invoke primary model
             response = model.invoke(truncated_messages)
             return response
             
         except Exception as e:
+            last_error = e
+            logger.warning(f"Model invocation failed (attempt {attempt + 1}/{max_retries}): {e}")
+            
             if "context_length_exceeded" in str(e) and attempt < max_retries - 1:
-                logger.warning(f"Context length exceeded, retrying with shorter context (attempt {attempt + 1})")
+                logger.warning(f"Context length exceeded, retrying with shorter context")
                 # Reduce context further
                 messages = messages[-5:]  # Keep only last 5 messages
                 continue
+            elif attempt < max_retries - 1:
+                # For other errors, continue to next attempt
+                continue
             else:
-                logger.error(f"Model invocation failed: {e}")
-                raise
+                # All retries exhausted
+                break
+    
+    # If we get here, all attempts failed
+    logger.error(f"All model invocations failed for model {model}")
+    if last_error:
+        raise last_error
+    else:
+        raise RuntimeError(f"All retries failed for model {model}.")

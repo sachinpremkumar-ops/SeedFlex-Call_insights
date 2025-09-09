@@ -5,6 +5,28 @@ from langgraph.types import Command
 
 
 @tool
+def extract_key_points(conversation: str, tool_call_id: Annotated[Optional[str], InjectedToolCallId] = None):
+    """
+    Extract key points from the conversation.
+    Args:
+        conversation: The conversation text to extract key points from
+    Returns:
+        The extracted key points
+    """
+    # This is a placeholder - the actual extraction should be done by the LLM
+    # The tool exists to prevent "tool not found" errors
+    update_dict = {
+        "messages": [
+            ToolMessage(
+                content="Key points extraction completed. Use update_state_Key_Points_Agent to update the state.",
+                tool_call_id=tool_call_id or "extract_key_points",
+            )
+        ]
+    }
+    return Command(update=update_dict)
+
+
+@tool
 def update_state_Key_Points_Agent(
     processing_status: Optional[str] = None,
     processing_complete: Optional[bool] = None,

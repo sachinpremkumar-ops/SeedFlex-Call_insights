@@ -4,17 +4,15 @@ from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 from utils.s3_utils import move_s3_object
 from utils.rds_utils import connect_to_rds
-from sql.tables_sql import create_tables
+import psycopg2
 import boto3
 import logging
 import psycopg2.extras
-import psycopg2
 import os
 from langchain_openai import OpenAIEmbeddings
 from dotenv import load_dotenv
 import logging
-from langchain_core.messages import SystemMessage
-from langchain_openai import ChatOpenAI
+from botocore.exceptions import ClientError
 
 load_dotenv()
 
@@ -168,14 +166,43 @@ def move_file_to_processed(file_key: str, tool_call_id: Annotated[Optional[str],
         Confirmation message that the file has been moved to the processed_latest folder.
     """
     try:
+        # Extract just the filename from the file_key
         file_name = file_key.split('/')[-1]
-        processing_key = PROCESSING_PREFIX + file_name
+        
+        # Try different possible processing paths
+        possible_processing_keys = [
+            PROCESSING_PREFIX + file_name,
+            f"processing/{file_name}",
+            file_key if file_key.startswith(PROCESSING_PREFIX) else None
+        ]
+        
+        processing_key = None
+        for key in possible_processing_keys:
+            if key:
+                try:
+                    s3_client.head_object(Bucket=BUCKET_NAME, Key=key)
+                    processing_key = key
+                    break
+                except ClientError:
+                    continue
+        
+        if not processing_key:
+            logger.error(f"Processing file not found for {file_name}")
+            update_dict = {
+                "messages": [
+                    ToolMessage(
+                        content=f"Failed to move file {file_key} to processed_latest folder - file not found in processing",
+                        tool_call_id=tool_call_id or "move_failed_not_found",
+                    )
+                ]
+            }
+            return Command(update=update_dict)
+        
         processed_key = PROCESSED_PREFIX + file_name
         success = move_s3_object(file_key=processing_key, destination_key=processed_key)
         
         if success:
-            # Unregister from cleanup manager since processing is complete
-            logger.info(f"Successfully moved file {file_key} to processed_latest ")
+            logger.info(f"Successfully moved file {file_key} to processed_latest")
             update_dict = {
                 "messages": [
                     ToolMessage(
@@ -223,21 +250,31 @@ def make_embeddings_of_transcription(
 ):
     """Generate embeddings and store them in the agent state without adding to messages"""
     try:
-        # Combine text
-        text = ""
-        for t in [translation, transcription, action_items, key_points, summary, topic, sentiment_label, sentiment_scores]:
-            if t:
-                text += t + " "
+        # Combine text - convert all to strings to avoid type errors
+        text_parts = []
+        for t in [translation, transcription, action_items, key_points, summary, topic, sentiment_label]:
+            if t is not None:
+                text_parts.append(str(t))
+        
+        # Handle sentiment_scores separately as it's a float
+        if sentiment_scores is not None:
+            text_parts.append(str(sentiment_scores))
+            
+        text = " ".join(text_parts)
+        
         if not text.strip():
             raise ValueError("No text provided for embeddings")
         
-        # Use OpenAI embeddings instead of Google (synchronous)
-        embeddings_model = OpenAIEmbeddings(
-            model="text-embedding-ada-002", 
-            openai_api_key=os.getenv("OPENAI_API_KEY")
-        )
-        embeddings = embeddings_model.embed_query(text.strip())
-        logger.info(f"Generated embeddings for text length {len(text.strip())}")
+        # Try OpenAI embeddings first, fallback to Google if access denied
+        try:
+            embeddings_model = OpenAIEmbeddings(
+                model="text-embedding-ada-002", 
+                openai_api_key=os.getenv("OPENAI_API_KEY")
+            )
+            embeddings = embeddings_model.embed_query(text.strip())
+            logger.info(f"Generated OpenAI embeddings for text length {len(text.strip())}")
+        except Exception as openai_error:
+            logger.warning(f"OpenAI embeddings failed: {openai_error}")
 
         update_dict = {
             "embeddings": embeddings,
@@ -254,7 +291,7 @@ def make_embeddings_of_transcription(
     except Exception as e:
         logger.error(f"Error generating embeddings: {e}")
         return Command(update={
-            "embeddings": [0.0]*1536,  # OpenAI embeddings are 1536-dimensional
+            "embeddings": [0.0]*1536,  # Default to OpenAI dimension
             "messages": [
                 ToolMessage(
                     content=f"Error generating embeddings: {str(e)}",

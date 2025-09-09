@@ -33,7 +33,7 @@ client = OpenAI()
 # Constants
 BUCKET_NAME = "experiment2407"
 PROCESSING_PREFIX = "processing/"
-PROCESSED_PREFIX = "processed/"
+PROCESSED_PREFIX = "processed_latest/"
 
 @tool
 def transcribe_audio(file_name: str):
@@ -45,10 +45,9 @@ def transcribe_audio(file_name: str):
         
         if audio_bytes is None:
             logger.error(f"Failed to fetch audio file: {processing_key}")
-            return None
+            return "Error: Audio file not found in processing folder"
         
         # Create a file-like object with proper filename for OpenAI API
-        
         audio_file = io.BytesIO(audio_bytes)
         audio_file.name = file_name  # Set the filename for format detection
         
@@ -62,7 +61,7 @@ def transcribe_audio(file_name: str):
     except Exception as e:
         logger.error(f"Error transcribing {file_name}: {e}")
         print(f"Error transcribing {file_name}: {e}")
-        return None
+        return f"Error: Audio file not transcribed - {str(e)}"
 
 @tool
 def translate_audio(file_name:str):

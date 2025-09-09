@@ -4,7 +4,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langchain_core.tools import tool, InjectedToolCallId
-from langgraph.prebuilt import create_react_agent, ToolNode
+from langgraph.prebuilt import ToolNode
 from langgraph.types import Command  # Added missing import
 from pydantic import BaseModel 
 from langchain_openai import ChatOpenAI,OpenAIEmbeddings
@@ -23,9 +23,9 @@ from openai import OpenAI
 from Tools.Speech_Agent_Tools import transcribe_audio, translate_audio, update_state_Speech_Agent
 from langgraph.graph.state import LastValue, LastValueAfterFinish, BinaryOperatorAggregate
 from Tools.Summarization_Agent_Tools import update_state_Summarization_Agent
-from Tools.Topic_Classification_Agent_Tools import update_state_Topic_Classification_Agent
-from Tools.Key_Points_Agent_Tools import update_state_Key_Points_Agent
-from Tools.Action_Items_Agent_Tools import update_state_Action_Items_Agent
+from Tools.Topic_Classification_Agent_Tools import update_state_Topic_Classification_Agent, classify_conversation
+from Tools.Key_Points_Agent_Tools import update_state_Key_Points_Agent, extract_key_points
+from Tools.Action_Items_Agent_Tools import update_state_Action_Items_Agent, extract_action_items
 from Tools.Storage_Agent_Tools import update_state_Storage_Agent, insert_data_all, move_file_to_processed, make_embeddings_of_transcription
 from utils.rds_utils import connect_to_rds, get_secret
 from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
@@ -54,19 +54,21 @@ PROCESSED_PREFIX = "processed_latest/"
 # Initialize OpenAI model with error handling
 try:
     model = ChatOpenAI(model="gpt-4", api_key=os.getenv("OPENAI_API_KEY"), temperature=0)
-    # embeddings_model = OpenAIEmbeddings(model="text-embedding-ada-002", api_key=os.getenv("OPENAI_API_KEY"))
+    # ollama_model= ChatOllama(model="llama3.2:1b", temperature=0, base_url="http://localhost:11434")
+    # ollama_model= ChatOllama(model="llama3.2", temperature=0, base_url="http://localhost:11434")
+    embeddings_model = OpenAIEmbeddings(model="text-embedding-ada-002", api_key=os.getenv("OPENAI_API_KEY"))
     # embeddings_model = GoogleGenerativeAIEmbeddings(model="embedding-001", google_api_key=os.getenv("GEMINI_API_KEY"))
     client = OpenAI()
 except Exception as e:
     logger.error(f"Failed to initialize OpenAI models: {e}")
-    raise
+    raise e
 
 # Initialize S3 client with error handling
 try:
     s3_client = boto3.client('s3')  
 except Exception as e:
     logger.error(f"Failed to initialize S3 client: {e}")
-    raise
+    raise e
 
 class AudioFile(BaseModel):
     key: str
@@ -104,12 +106,21 @@ def Ingestion_Model(state: AgentState) -> AgentState:
     messages = messages + [SystemMessage(content=Ingestion_Model_Template)]
     Ingestion_Model_With_Tools = model.bind_tools(Ingestion_model_tools)
     
-    response = Ingestion_Model_With_Tools.invoke(messages)
+    response = safe_model_invoke(Ingestion_Model_With_Tools, messages)
     
-    return {
-        **state,
-        "messages": state.get("messages", []) + [response],
-    }
+    if isinstance(response, Command):
+        # For Command responses, merge the updates and add any ToolMessages from the update
+        new_state = {**state, "messages": messages}
+        if "messages" in response.update:
+            new_state["messages"] = messages + response.update["messages"]
+        new_state.update(response.update)  # merge other state updates
+        return new_state
+    else:
+        # fallback if response is not a Command
+        return {
+            **state,
+            "messages": state.get("messages", []) + [response],
+        }
 
 def Ingestion_Agent_Should_Continue(state: AgentState):
     """Check if the last message contains tool calls"""
@@ -143,8 +154,18 @@ def Speech_Model(state:AgentState) -> AgentState:
     messages=state['messages']
     messages=state['messages'] + [SystemMessage(content=Speech_Model_Template)]
     Speech_Model_With_Tools=model.bind_tools(Speech_Model_Tools)
-    response=Speech_Model_With_Tools.invoke(messages)
-    return {**state, "messages" : messages + [response]}
+    response=safe_model_invoke(Speech_Model_With_Tools, messages)
+    
+    if isinstance(response, Command):
+        # For Command responses, merge the updates and add any ToolMessages from the update
+        new_state = {**state, "messages": messages}
+        if "messages" in response.update:
+            new_state["messages"] = messages + response.update["messages"]
+        new_state.update(response.update)  # merge other state updates
+        return new_state
+    else:
+        # fallback if response is not a Command
+        return {**state, "messages" : messages + [response]}
     
 def Speech_model_Should_Continue(state:AgentState):
     """check if the last message contains tool calls"""
@@ -215,14 +236,24 @@ Summarization_Agent=(StateGraph(AgentState)
             .add_edge("Summarization_Model_Tools", "Summarization_Model")
             ).compile()
 
-Topic_Classification_Model_Tools = [update_state_Topic_Classification_Agent]
+Topic_Classification_Model_Tools = [update_state_Topic_Classification_Agent, classify_conversation]
 
 def Topic_Classification_Model(state:AgentState):
     messages = state.get('messages', [])
     messages = messages + [SystemMessage(content=Topic_Classification_Model_Template)]
     Topic_Classification_Model_With_Tools = model.bind_tools(Topic_Classification_Model_Tools)
     response = safe_model_invoke(Topic_Classification_Model_With_Tools, messages)
-    return {**state, "messages" : messages + [response]}
+    
+    if isinstance(response, Command):
+        # For Command responses, merge the updates and add any ToolMessages from the update
+        new_state = {**state, "messages": messages}
+        if "messages" in response.update:
+            new_state["messages"] = messages + response.update["messages"]
+        new_state.update(response.update)  # merge other state updates
+        return new_state
+    else:
+        # fallback if response is not a Command
+        return {**state, "messages" : messages + [response]}
 
 def Topic_Classification_Model_Should_Continue(state:AgentState):
     """check if the last message contains tool calls"""
@@ -249,14 +280,24 @@ Topic_Classification_Agent=(StateGraph(AgentState)
             .add_edge("Topic_Classification_Model_Tools", "Topic_Classification_Model")
             ).compile()
 
-Key_Points_Model_Tools = [update_state_Key_Points_Agent]
+Key_Points_Model_Tools = [update_state_Key_Points_Agent, extract_key_points]
 
 def Key_Points_Model(state:AgentState):
     messages=state['messages']
     messages=messages + [SystemMessage(content=Key_Points_Model_Template)]
     Key_Points_Model_With_Tools=model.bind_tools(Key_Points_Model_Tools)
     response=safe_model_invoke(Key_Points_Model_With_Tools, messages)
-    return {**state, "messages" : messages + [response]}
+    
+    if isinstance(response, Command):
+        # For Command responses, merge the updates and add any ToolMessages from the update
+        new_state = {**state, "messages": messages}
+        if "messages" in response.update:
+            new_state["messages"] = messages + response.update["messages"]
+        new_state.update(response.update)  # merge other state updates
+        return new_state
+    else:
+        # fallback if response is not a Command
+        return {**state, "messages" : messages + [response]}
 
 def Key_Points_Model_Should_Continue(state:AgentState):
     """check if the last message contains tool calls"""
@@ -281,14 +322,24 @@ Key_Points_Agent=(StateGraph(AgentState)
             .add_edge("Key_Points_Model_Tools", "Key_Points_Model")
             ).compile()
 
-Action_Items_Model_Tools = [update_state_Action_Items_Agent]
+Action_Items_Model_Tools = [update_state_Action_Items_Agent, extract_action_items]
 
 def Action_Items_Model(state:AgentState):
     messages=state['messages']
     messages=messages + [SystemMessage(content=Action_Items_Model_Template)]
     Action_Items_Model_With_Tools=model.bind_tools(Action_Items_Model_Tools)
     response=safe_model_invoke(Action_Items_Model_With_Tools, messages)
-    return {**state, "messages" : messages + [response]}
+    
+    if isinstance(response, Command):
+        # For Command responses, merge the updates and add any ToolMessages from the update
+        new_state = {**state, "messages": messages}
+        if "messages" in response.update:
+            new_state["messages"] = messages + response.update["messages"]
+        new_state.update(response.update)  # merge other state updates
+        return new_state
+    else:
+        # fallback if response is not a Command
+        return {**state, "messages" : messages + [response]}
 
 def Action_Items_Model_Should_Continue(state:AgentState):
     """check if the last message contains tool calls"""
@@ -323,7 +374,17 @@ def Sentiment_Analysis_Model(state:AgentState):
     messages=messages + [SystemMessage(content=Sentiment_Analysis_Model_Template)]
     Sentiment_Analysis_Model_With_Tools=model.bind_tools(Sentiment_Analysis_Model_Tools)
     response=safe_model_invoke(Sentiment_Analysis_Model_With_Tools, messages)
-    return {**state, "messages" : messages + [response]}
+    
+    if isinstance(response, Command):
+        # For Command responses, merge the updates and add any ToolMessages from the update
+        new_state = {**state, "messages": messages}
+        if "messages" in response.update:
+            new_state["messages"] = messages + response.update["messages"]
+        new_state.update(response.update)  # merge other state updates
+        return new_state
+    else:
+        # fallback if response is not a Command
+        return {**state, "messages" : messages + [response]}
 
 def Sentiment_Analysis_Model_Should_Continue(state:AgentState):
     """check if the last message contains tool calls"""
@@ -355,7 +416,17 @@ def Storage_Agent_Model(state:AgentState):
     messages=messages + [SystemMessage(content=Storage_Model_Template)]
     Storage_Model_With_Tools=model.bind_tools(Storage_Model_Tools)
     response=safe_model_invoke(Storage_Model_With_Tools, messages)
-    return {**state, "messages" : messages + [response]}
+    
+    if isinstance(response, Command):
+        # For Command responses, merge the updates and add any ToolMessages from the update
+        new_state = {**state, "messages": messages}
+        if "messages" in response.update:
+            new_state["messages"] = messages + response.update["messages"]
+        new_state.update(response.update)  # merge other state updates
+        return new_state
+    else:
+        # fallback if response is not a Command
+        return {**state, "messages" : messages + [response]}
 
 def Storage_Agent_Should_Continue(state:AgentState):
     """check if the last message contains tool calls"""
@@ -404,4 +475,3 @@ workflow.add_edge("Sentiment_Analysis_Agent", "Storage_Agent")
 workflow.add_edge("Storage_Agent", END)
 
 graph=workflow.compile()
-

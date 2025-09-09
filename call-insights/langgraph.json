@@ -4,6 +4,8 @@
       "agent": "./src/graph.py:graph"
     },
     "env": ".env",
-    "image_distro": "wolfi"
+    "image_distro": "wolfi",
+    "n_jobs_per_worker": 2,
+    "server_log_level": "WARNING"
   }
   
