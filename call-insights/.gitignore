@@ -10,7 +10,7 @@ wheels/
 .venv
 venv
 
-Environment variables
+# Environment variables
 .env
 .env.local
 .env.*.local
