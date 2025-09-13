@@ -1,0 +1,23 @@
+Agent,File Path,Function Name,Database Table,Data Written,Purpose
+Ingestion Agent,src/Tools/Ingestion_Agent_Tools.py,get_single_audio_file_from_s3,None,File metadata,Retrieve audio file from S3
+Ingestion Agent,src/Tools/Ingestion_Agent_Tools.py,move_file_to_processing,None,S3 file movement,Move file to processing folder
+Ingestion Agent,src/Tools/Ingestion_Agent_Tools.py,roll_back_file_from_processing,None,S3 file movement,Rollback file on error
+Ingestion Agent,src/Tools/Ingestion_Agent_Tools.py,update_state_Ingestion_Agent,None,State management,Update agent state
+Speech Agent,src/Tools/Speech_Agent_Tools.py,transcribe_audio,None,Transcription text,Convert audio to text
+Speech Agent,src/Tools/Speech_Agent_Tools.py,translate_audio,None,Translation text,Translate non-English audio
+Speech Agent,src/Tools/Speech_Agent_Tools.py,update_state_Speech_Agent,None,State management,Update agent state
+Summarization Agent,src/Tools/Summarization_Agent_Tools.py,update_state_Summarization_Agent,None,State management,Update agent state
+Topic Classification Agent,src/Tools/Topic_Classification_Agent_Tools.py,classify_conversation,None,Topic classification,Classify conversation topic
+Topic Classification Agent,src/Tools/Topic_Classification_Agent_Tools.py,update_state_Topic_Classification_Agent,None,State management,Update agent state
+Key Points Agent,src/Tools/Key_Points_Agent_Tools.py,extract_key_points,None,Key points text,Extract main discussion points
+Key Points Agent,src/Tools/Key_Points_Agent_Tools.py,update_state_Key_Points_Agent,None,State management,Update agent state
+Action Items Agent,src/Tools/Action_Items_Agent_Tools.py,extract_action_items,None,Action items text,Extract actionable tasks
+Action Items Agent,src/Tools/Action_Items_Agent_Tools.py,update_state_Action_Items_Agent,None,State management,Update agent state
+Sentiment Analysis Agent,src/Tools/Sentiment_Analysis_Agent.py,sentiment_analysis,None,Sentiment scores,Analyze emotional tone
+Sentiment Analysis Agent,src/Tools/Sentiment_Analysis_Agent.py,update_state_Sentiment_Analysis_Agent,None,State management,Update agent state
+Storage Agent,src/Tools/Storage_Agent_Tools.py,insert_data_all,calls,file_name file_size uploaded_at,Insert call data to database
+Storage Agent,src/Tools/Storage_Agent_Tools.py,insert_data_all,transcripts,transcript_text translated_text,Insert transcript data to database
+Storage Agent,src/Tools/Storage_Agent_Tools.py,insert_data_all,analyses,topic abstract_summary key_points action_items sentiment_label sentiment_scores embeddings,Insert analysis data to database
+Storage Agent,src/Tools/Storage_Agent_Tools.py,move_file_to_processed,None,S3 file movement,Move file to processed folder
+Storage Agent,src/Tools/Storage_Agent_Tools.py,make_embeddings_of_transcription,None,Embeddings vector,Generate vector embeddings
+Storage Agent,src/Tools/Storage_Agent_Tools.py,update_state_Storage_Agent,None,State management,Update agent state

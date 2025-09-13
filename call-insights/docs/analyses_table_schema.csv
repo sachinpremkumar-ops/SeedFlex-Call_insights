@@ -1,0 +1,11 @@
+Table Name,Column Name,Data Type,Constraints,Description
+analyses,analysis_id,SERIAL,PRIMARY KEY,Auto-incrementing unique identifier
+analyses,call_id,INT,FOREIGN KEY → calls(call_id) ON DELETE CASCADE,References the call
+analyses,topic,TEXT,,Classified topic/category of the conversation
+analyses,abstract_summary,TEXT,,AI-generated summary of the conversation
+analyses,key_points,TEXT,,Extracted key discussion points
+analyses,action_items,TEXT,,Identified actionable tasks
+analyses,sentiment_label,TEXT,,Sentiment classification (positive/negative/neutral)
+analyses,sentiment_scores,TEXT,,Detailed sentiment scores
+analyses,embeddings,vector(1536),,Vector embeddings for semantic search
+analyses,created_at,TIMESTAMP,DEFAULT CURRENT_TIMESTAMP,When the analysis was created

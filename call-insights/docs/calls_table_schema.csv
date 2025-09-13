@@ -1,0 +1,6 @@
+Table Name,Column Name,Data Type,Constraints,Description
+calls,call_id,SERIAL,PRIMARY KEY,Auto-incrementing unique identifier,1
+calls,file_name,TEXT,NOT NULL,Name of the audio file
+calls,file_size,BIGINT,,Size of the file in bytes
+calls,uploaded_at,TIMESTAMP WITH TIME ZONE,DEFAULT CURRENT_TIMESTAMP,When the file was uploaded
+calls,processed_at,TIMESTAMP WITH TIME ZONE,DEFAULT CURRENT_TIMESTAMP,When the file was processed,"2024-01-15 10:35:00"

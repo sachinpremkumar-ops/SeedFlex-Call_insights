@@ -25,7 +25,6 @@ def extract_action_items(conversation: str, tool_call_id: Annotated[Optional[str
     }
     return Command(update=update_dict)
 
-
 @tool
 def update_state_Action_Items_Agent(
     processing_status: Optional[str] = None,

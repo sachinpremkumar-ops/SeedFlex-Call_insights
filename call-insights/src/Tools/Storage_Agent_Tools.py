@@ -2,8 +2,7 @@ from typing import Optional, Annotated
 from langchain_core.tools import tool, InjectedToolCallId
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
-from utils.s3_utils import move_s3_object
-from utils.rds_utils import connect_to_rds
+from src.utils.s3_utils import move_s3_object
 import psycopg2
 import boto3
 import logging
@@ -13,7 +12,8 @@ from langchain_openai import OpenAIEmbeddings
 from dotenv import load_dotenv
 import logging
 from botocore.exceptions import ClientError
-
+from src.sql.tables_sql import create_tables
+from src.utils.rds_utils import connect_to_rds
 load_dotenv()
 
 s3_client = boto3.client('s3')
@@ -27,7 +27,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 @tool
-def insert_data_all(file_key, file_size, uploaded_at,
+def insert_data_all(workflow_id,file_key, file_size, uploaded_at,
                     transcription=None, translation=None,
                     topic=None, summary=None, key_points=None,
                     action_items=None, sentiment_label=None,
@@ -35,6 +35,7 @@ def insert_data_all(file_key, file_size, uploaded_at,
     """
     Insert the data into the database
     Args:
+        workflow_id: the workflow id
         file_key: the file key
         file_size: the file size
         uploaded_at: the uploaded at
@@ -56,27 +57,34 @@ def insert_data_all(file_key, file_size, uploaded_at,
         connection = connect_to_rds()  # Make sure this returns a psycopg2 connection
         with connection.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
 
-            # Insert into calls and get call_id
+            # Insert into calls and get workflow_id
+            create_tables(connection)
+            print("Tables created successfully!")
             cursor.execute("""
-                INSERT INTO calls(file_name, file_size, uploaded_at)
-                VALUES (%s, %s, %s)
-                RETURNING call_id
-            """, (file_key, file_size, uploaded_at))
+                INSERT INTO calls(workflow_id, file_name, file_size, uploaded_at)
+                VALUES (%s, %s, %s, %s)
+                RETURNING workflow_id
+            """, (workflow_id, file_key, file_size, uploaded_at))
 
             result = cursor.fetchone()
             if not result:
-                print("ERROR: No call_id returned from INSERT")
+                print("ERROR: No workflow_id returned from INSERT")
                 connection.rollback()
                 return
 
-            call_id = result['call_id']
+            # Handle both dict and tuple results
+            if isinstance(result, dict):
+                workflow_id = result.get('workflow_id')
+            else:
+                workflow_id = result[0]
 
             # Insert transcript if available
             if transcription or translation:
                 cursor.execute("""
-                    INSERT INTO transcripts(call_id, transcript_text, translated_text, created_at)
+                    INSERT INTO transcripts(workflow_id, transcript_text, translated_text, created_at)
                     VALUES (%s, %s, %s, NOW())
-                """, (call_id, transcription, translation))
+                    RETURNING transcript_id
+                """, (workflow_id, transcription, translation))
 
             # Insert analysis if any field is provided
             if any([topic, summary, key_points, action_items, sentiment_label, sentiment_scores, embeddings]):
@@ -89,12 +97,11 @@ def insert_data_all(file_key, file_size, uploaded_at,
 
                 cursor.execute("""
                     INSERT INTO analyses(
-                        call_id, topic, abstract_summary, key_points, action_items,
+                        workflow_id, topic, abstract_summary, key_points, action_items,
                         sentiment_label, sentiment_scores, embeddings
                     )
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s::vector)
-                """, (call_id, topic, summary, key_points, action_items, sentiment_label, sentiment_scores, embeddings))
-
+                """, (workflow_id, topic, summary, key_points, action_items, sentiment_label, sentiment_scores, embeddings))          
             # Commit once at the end
             connection.commit()
             print("All data inserted successfully!")
@@ -173,7 +180,8 @@ def move_file_to_processed(file_key: str, tool_call_id: Annotated[Optional[str],
         possible_processing_keys = [
             PROCESSING_PREFIX + file_name,
             f"processing/{file_name}",
-            file_key if file_key.startswith(PROCESSING_PREFIX) else None
+            file_key if file_key.startswith(PROCESSING_PREFIX) else None,
+            file_key  # Try the original file_key as well
         ]
         
         processing_key = None
@@ -182,16 +190,42 @@ def move_file_to_processed(file_key: str, tool_call_id: Annotated[Optional[str],
                 try:
                     s3_client.head_object(Bucket=BUCKET_NAME, Key=key)
                     processing_key = key
+                    logger.info(f"Found file at: {key}")
                     break
                 except ClientError:
                     continue
         
         if not processing_key:
-            logger.error(f"Processing file not found for {file_name}")
+            # Check if file is already in processed folder
+            processed_key = PROCESSED_PREFIX + file_name
+            try:
+                s3_client.head_object(Bucket=BUCKET_NAME, Key=processed_key)
+                logger.info(f"File {file_name} is already in processed folder")
+                update_dict = {
+                    "messages": [
+                        ToolMessage(
+                            content=f"File {file_name} is already in processed folder - no action needed",
+                            tool_call_id=tool_call_id or "already_processed",
+                        )
+                    ]
+                }
+                return Command(update=update_dict)
+            except ClientError:
+                pass  # File not in processed folder, continue with error handling
+            
+            logger.error(f"Processing file not found for {file_name}. Tried paths: {possible_processing_keys}")
+            # List files in processing folder for debugging
+            try:
+                response = s3_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=PROCESSING_PREFIX)
+                files_in_processing = [obj['Key'] for obj in response.get('Contents', [])]
+                logger.info(f"Files in processing folder: {files_in_processing}")
+            except Exception as e:
+                logger.error(f"Error listing processing files: {e}")
+            
             update_dict = {
                 "messages": [
                     ToolMessage(
-                        content=f"Failed to move file {file_key} to processed_latest folder - file not found in processing",
+                        content=f"Failed to move file {file_key} to processed_latest folder - file not found in processing. File may have already been moved or path is incorrect.",
                         tool_call_id=tool_call_id or "move_failed_not_found",
                     )
                 ]

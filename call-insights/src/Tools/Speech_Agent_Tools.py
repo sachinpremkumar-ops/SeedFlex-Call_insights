@@ -18,7 +18,7 @@ import os
 import io
 import logging
 from openai import OpenAI
-from utils.s3_utils import s3_get_audio_file
+from src.utils.s3_utils import s3_get_audio_file        
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

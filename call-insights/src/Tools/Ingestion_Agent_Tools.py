@@ -1,5 +1,5 @@
 from langchain_core.tools import tool, InjectedToolCallId
-from utils.s3_utils import is_supported_format, check_if_file_is_processed, move_s3_object, get_original_key_from_processed
+from src.utils.s3_utils import is_supported_format, check_if_file_is_processed, move_s3_object, get_original_key_from_processed
 from botocore.exceptions import ClientError
 from typing import Optional, Annotated
 import json
@@ -19,62 +19,73 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 @tool
-def get_single_audio_file_from_s3() -> str:
-    """Fetch ONLY ONE audio file from S3 bucket for single-file processing mode"""
+def get_single_audio_file_from_s3(audio_file_key: Optional[str] = None) -> str:
+    """
+    Fetch ONLY ONE audio file from S3 bucket for single-file processing mode.
+    Args:
+        audio_file_key: The key of the audio_file_key(in the state) to fetch (if present in the state) 
+        use it with get_single_audio_file_from_s3(audio_file_key)
+    Returns:
+        A JSON string containing the status and the file
+    """
     try:
-        response = s3_client.list_objects_v2(
-            Bucket=BUCKET_NAME
-        )
+        # If specific file key provided, check if it exists and is processable
+        if audio_file_key:
+            try:
+                response = s3_client.head_object(Bucket=BUCKET_NAME, Key=audio_file_key)
+                if is_supported_format(audio_file_key) and not check_if_file_is_processed(audio_file_key):
+                    selected_file = {
+                        'key': audio_file_key,
+                        'size': response['ContentLength'],
+                        'last_modified': response['LastModified'].isoformat(),
+                        'bucket': BUCKET_NAME,
+                        'original_key': audio_file_key,
+                        'current_state': 'original'
+                    }
+                    logger.info(f"🎯 SINGLE FILE MODE: Selected {audio_file_key} for processing")
+                    return json.dumps({"status": "file_selected", "file": selected_file})
+                else:
+                    logger.info(f"File {audio_file_key} is not processable or already processed")
+                    return json.dumps({"status": "file_not_processable", "file": None})
+            except ClientError:
+                logger.info(f"File {audio_file_key} not found in S3")
+                return json.dumps({"status": "file_not_found", "file": None})
+        
+        # Otherwise, find the first unprocessed file
+        response = s3_client.list_objects_v2(Bucket=BUCKET_NAME)
         
         if "Contents" not in response:
             logger.info("No files found in S3 bucket")
             return json.dumps({"status": "no_files", "file": None})
         
-        selected_file = None
-        
         # Find the FIRST unprocessed audio file
         for obj in response['Contents']:
-            if is_supported_format(obj['Key']):
-                
-                # Skip files in processing, processed, or processed_latest folders
-                if obj['Key'].startswith('processing/') or obj['Key'].startswith('processed_latest/') or obj['Key'].startswith('processed/'):
-                    continue
-                    
-                if not check_if_file_is_processed(obj['Key']):
-                    if selected_file is None:  # Select only the FIRST unprocessed file
-                        selected_file = {
-                            'key': obj['Key'],
-                            'size': obj['Size'],
-                            'last_modified': obj['LastModified'].isoformat(),
-                            'bucket': BUCKET_NAME,
-                            'original_key': obj['Key'],
-                            'current_state': 'original'
-                        }
-                        logger.info(f"🎯 SINGLE FILE MODE: Selected {obj['Key']} for processing")
-                        break
-                
+            if is_supported_format(obj['Key']) and not check_if_file_is_processed(obj['Key']):
+                selected_file = {
+                    'key': obj['Key'],
+                    'size': obj['Size'],
+                    'last_modified': obj['LastModified'].isoformat(),
+                    'bucket': BUCKET_NAME,
+                    'original_key': obj['Key'],
+                    'current_state': 'original'
+                }
+                logger.info(f"🎯 SINGLE FILE MODE: Selected {obj['Key']} for processing")
+                return json.dumps({"status": "file_selected", "file": selected_file})
         
-        if selected_file:
-            result = {"status": "file_selected", "file": selected_file}
-            return json.dumps(result)
-        else:
-            logger.info("✅ No unprocessed files found.")
-            result = {"status": "all_processed", "file": None}
-            return json.dumps(result)
+        logger.info("✅ No unprocessed files found.")
+        return json.dumps({"status": "all_processed", "file": None})
     
     except ClientError as e:
         logger.error(f"S3 client error fetching files: {e}")
-        result = {"status": "error", "file": None, "error": str(e)}
-        return json.dumps(result)
+        return json.dumps({"status": "error", "file": None, "error": str(e)})
     except Exception as e:
         logger.error(f"Unexpected error fetching files from S3: {e}")
-        result = {"status": "error", "file": None, "error": str(e)}
-        return json.dumps(result) 
+        return json.dumps({"status": "error", "file": None, "error": str(e)}) 
 
 
 @tool 
 def move_file_to_processing(file_key: str, tool_call_id: Annotated[Optional[str], InjectedToolCallId] = None) -> str:
-    """Move audio file to processing folder in S3 with automatic cleanup registration"""
+    """Move audio file to processing folder in S3"""
     try:
         file_name = file_key.split('/')[-1]
         processing_key = PROCESSING_PREFIX + file_name
@@ -169,24 +180,36 @@ def roll_back_file_from_processing(file_key: str, tool_call_id: Annotated[Option
 
 @tool
 def update_state_Ingestion_Agent(
+    workflow_id: Optional[str] = None,
     processing_status: Optional[str] = None,
     processing_complete: Optional[bool] = None,
+    audio_files: Optional[dict] = None,
+    audio_file_key: Optional[str] = None,
     tool_call_id: Annotated[Optional[str], InjectedToolCallId] = None
 ) -> str:
     """
     Update the state of the agent
     Args:
+        workflow_id: Workflow ID to update in state
         processing_status: Status of the processing
         processing_complete: Whether processing is complete
+        audio_files: Audio file information to update in state
+        audio_file_key: Audio file key to update in state
     Returns:
         Confirmation message that the state has been updated.
     """
     update_dict = {}
+    if workflow_id is not None:
+        update_dict['workflow_id'] = workflow_id
     if processing_status is not None:
         update_dict['processing_status'] = processing_status
     if processing_complete is not None:
         update_dict['processing_complete'] = processing_complete
-
+    if audio_files is not None:
+        update_dict['audio_files'] = audio_files
+    if audio_file_key is not None:
+        update_dict['audio_file_key'] = audio_file_key
+        
     update_dict["messages"] = [
         ToolMessage(
             content="State updated successfully.",

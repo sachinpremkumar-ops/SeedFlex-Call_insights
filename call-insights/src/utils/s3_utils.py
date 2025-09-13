@@ -140,9 +140,10 @@ def check_if_file_is_processed(file_key: str) -> bool:
             return False
         
         with connection.cursor() as cursor:
+            # Use the same table structure as the main create_tables function
             cursor.execute("""
-                CREATE TABLE IF NOT EXISTS CALLS (
-                    call_id SERIAL PRIMARY KEY,
+                CREATE TABLE IF NOT EXISTS calls (
+                    workflow_id TEXT PRIMARY KEY,
                     file_name TEXT NOT NULL,
                     file_size BIGINT,
                     uploaded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -156,11 +157,15 @@ def check_if_file_is_processed(file_key: str) -> bool:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                    SELECT COUNT(*) FROM CALLS WHERE file_name = %s
+                    SELECT COUNT(*) FROM calls WHERE file_name = %s
                 """, (file_key,)
             )
             result = cursor.fetchone()
-            count = result['count'] if result else 0
+            # Handle both dict and tuple results
+            if isinstance(result, dict):
+                count = result.get('count', 0)
+            else:
+                count = result[0] if result else 0
             
         logger.info(f"File {file_key} processed status: {count > 0}")
         return count > 0

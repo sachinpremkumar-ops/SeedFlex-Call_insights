@@ -1,0 +1,6 @@
+Table Name,Column Name,Data Type,Constraints
+transcripts,transcript_id,SERIAL,PRIMARY KEY
+transcripts,call_id,INT,FOREIGN KEY → calls(call_id) ON DELETE CASCADE
+transcripts,transcript_text,TEXT
+transcripts,translated_text,TEXT
+transcripts,created_at,TIMESTAMP,DEFAULT CURRENT_TIMESTAMP

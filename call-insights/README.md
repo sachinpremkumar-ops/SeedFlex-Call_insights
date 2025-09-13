@@ -1,6 +1,6 @@
 # 🎯 Call Insights - AI-Powered Call Center Analytics
 
-A sophisticated **multi-agent system** built with **LangGraph** that processes call center audio files and extracts actionable insights through AI-powered analysis. This system transforms raw audio conversations into structured data including summaries, sentiment analysis, action items, and topic classification.
+A **multi-agent system** built with **LangGraph** that processes call center audio files and extracts actionable insights. Transforms raw audio conversations into structured data including summaries, sentiment analysis, action items, and topic classification.
 
 ## 🏗️ System Architecture
 
@@ -22,34 +22,27 @@ Audio File → Ingestion → Speech   →    Analysis Agents → Storage & Insig
 
 The system consists of **8 specialized agents** working in sequence:
 
-1. **🎯 Ingestion Agent** - Manages file discovery and state transitions
-2. **🎤 Speech Agent** - Handles transcription and translation
-3. **📝 Summarization Agent** - Creates concise conversation summaries
-4. **🏷️ Topic Classification Agent** - Categorizes conversation topics
-5. **🔑 Key Points Agent** - Extracts main discussion points
-6. **✅ Action Items Agent** - Identifies actionable tasks
-7. **😊 Sentiment Analysis Agent** - Analyzes emotional tone
-8. **💾 Storage Agent** - Stores results and manages embeddings
+| Agent | Description |
+|-------|-------------|
+| 🎯 **Ingestion Agent** | Manages file discovery and state transitions |
+| 🎤 **Speech Agent** | Handles transcription and translation |
+| 📝 **Summarization Agent** | Creates concise conversation summaries |
+| 🏷️ **Topic Classification Agent** | Categorizes conversation topics |
+| 🔑 **Key Points Agent** | Extracts main discussion points |
+| ✅ **Action Items Agent** | Identifies actionable tasks |
+| 😊 **Sentiment Analysis Agent** | Analyzes emotional tone |
+| 💾 **Storage Agent** | Stores results and manages embeddings |
 
 ## 🚀 Key Features
 
-### ✅ **Production-Ready Features**
-- **Multi-Agent Architecture**: LangGraph-based workflow orchestration
-- **Tool-Based Design**: Well-structured tools with comprehensive error handling
-- **State Management**: Type-safe state management with TypedDict
-- **AWS Integration**: S3, Secrets Manager, and RDS PostgreSQL
-- **LangSmith Integration**: Complete observability and tracing
-- **Modular Design**: Clean separation of concerns
-- **Error Recovery**: Automatic rollback and retry mechanisms
-- **Performance Monitoring**: Built-in tracking and metrics
-
-### 🔧 **Advanced Capabilities**
-- **Multi-language Support**: Automatic transcription and translation
-- **Sentiment Analysis**: Real-time emotional tone detection
-- **Topic Classification**: Intelligent conversation categorization
-- **Action Item Extraction**: Automated task identification
-- **Vector Embeddings**: Semantic search capabilities
-- **HubSpot Integration**: CRM data synchronization
+- **🤖 Multi-Agent Architecture**: LangGraph-based workflow orchestration
+- **🛠️ Tool-Based Design**: Well-structured tools with comprehensive error handling
+- **📊 State Management**: Type-safe state management with TypedDict
+- **☁️ AWS Integration**: S3, Secrets Manager, and RDS PostgreSQL
+- **📈 LangSmith Integration**: Complete observability and tracing
+- **🧩 Modular Design**: Clean separation of concerns
+- **🔄 Error Recovery**: Automatic rollback and retry mechanisms
+- **📊 Performance Monitoring**: Built-in tracking and metrics
 
 ## 📁 Project Structure
 
@@ -79,7 +72,7 @@ call-insights/
 │   │   ├── 📄 rds_utils.py             # Database connection utilities
 │   │   └── 📄 s3_utils.py              # AWS S3 utilities
 │   ├── 📁 sql/                         # Database schema and queries
-│   │   ├── 📄 tables_sql.py            # Database table definitions
+│   │   └── 📄 tables_sql.py            # Database table definitions
 │   ├── 📁 agents/                      # Additional agent modules (empty)
 │   └── 📁 mcp/                         # Model Context Protocol (empty)
 ├── 📁 static/                          # Static web assets
@@ -91,20 +84,25 @@ call-insights/
 
 ### Prerequisites
 
-- **Python 3.12+**
-- **AWS Account** with S3, Secrets Manager, and RDS access
-- **OpenAI API Key**
-<!-- - **HubSpot API Key** (optional, for CRM integration) -->
+- **🐍 Python 3.12+**
+- **☁️ AWS Account** with S3, Secrets Manager, and RDS access
+- **🔑 OpenAI API Key**
 
 ### 1. Clone and Install Dependencies
 
 ```bash
+
+
 # Clone the repository
 git clone https://0fmfrelo8dpli812oabsduzy-admin@bitbucket.org/seedflex/call-transcription-insights.git
 cd call-insights
 
 # Install using UV (recommended)
 uv sync
+
+# Install UV (if not already installed)
+pip install uv
+```
 
 ### 2. Environment Configuration
 
@@ -113,23 +111,20 @@ Create a `.env` file in the project root:
 ```bash
 # Required API Keys
 OPENAI_API_KEY=your_openai_api_key_here
-LANGCHAIN_TRACING_V2=true
-LANGCHAIN_API_KEY=your_langsmith_api_key
-LANGCHAIN_PROJECT=<your-project-name>
-LANGCHAIN_ENDPOINT=https://api.smith.langchain.com
-
-# ======================================================================================
+LANGSMITH_TRACING_V2=true
+LANGSMITH_API_KEY=your_langsmith_api_key
+LANGSMITH_PROJECT=<your-project-name>
+LANGSMITH_ENDPOINT=https://api.smith.langchain.com
 
 # S3 Configuration
 S3_BUCKET_NAME=experiment2407
 S3_PROCESSING_PREFIX=processing/
 S3_PROCESSED_PREFIX=processed_latest/
-
 ```
 
 ## 🔍 LangSmith Setup & Configuration
 
-LangSmith provides comprehensive observability for your LangGraph workflows. Here's how to set it up:
+LangSmith provides comprehensive observability for your LangGraph workflows:
 
 ### 1. Create LangSmith Account
 1. Go to [smith.langchain.com](https://smith.langchain.com)
@@ -137,57 +132,29 @@ LangSmith provides comprehensive observability for your LangGraph workflows. Her
 3. Create a new project 
 
 ### 2. Get API Key
-1. Navigate to Settings → API Keys
+1. Navigate to **Settings → API Keys**
 2. Create a new API key
 3. Copy the key to your `.env` file
 
 ### 3. Environment Variables
 ```bash
 # Add these to your .env file
-LANGCHAIN_TRACING_V2=true
-LANGCHAIN_API_KEY=ls__your_api_key_here
-LANGCHAIN_PROJECT=call-insights
-LANGCHAIN_ENDPOINT=https://api.smith.langchain.com
+LANGSMITH_TRACING_V2=true
+LANGSMITH_API_KEY=ls__your_api_key_here
+LANGSMITH_PROJECT=<your-project-name> (The one you put in langsmith)
+LANGSMITH_ENDPOINT=https://api.smith.langchain.com
 ```
 
-### 4. LangSmith Features You'll Get
-
-#### 🔍 **Trace Visualization**
-- Complete workflow execution traces
-- Agent-by-agent performance metrics
-- Tool call details and responses
-- Error tracking and debugging
-
-#### 📊 **Performance Analytics**
-- Execution time per agent
-- Token usage tracking
-- Cost analysis
-- Success/failure rates
-
-#### 🐛 **Debugging Tools**
-- Step-by-step execution logs
-- Input/output inspection
-- Error stack traces
-- State transitions
-
-#### 📈 **Monitoring Dashboard**
-- Real-time workflow monitoring
-- Performance trends
-- Alert configuration
-- Custom metrics
-
-### 5. Viewing Traces
-Once configured, you can view your workflow executions at:
-- **Dashboard**: https://smith.langchain.com/projects
-- **Traces**: https://smith.langchain.com/traces
-- **Sessions**: https://smith.langchain.com/sessions
+## 🎯 Usage
 
 ### Running with LangGraph CLI
 
 ```bash
-
 # Start the LangGraph server
 uv run langgraph dev
+```
+
+> **🚀 Quick Start**: Run `uv run langgraph dev` to start the server and begin processing audio files!
 
 ---
 

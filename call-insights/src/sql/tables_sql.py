@@ -1,7 +1,7 @@
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import json
-from utils.s3_utils import get_secret
+from src.utils.s3_utils import get_secret
 
 def connect_to_rds():
     secret = get_secret()
@@ -26,7 +26,7 @@ def create_tables(connection):
         try:
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS calls (
-                    call_id SERIAL PRIMARY KEY,
+                    workflow_id TEXT PRIMARY KEY,
                     file_name TEXT NOT NULL,
                     file_size BIGINT,
                     uploaded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -36,7 +36,7 @@ def create_tables(connection):
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS transcripts (
                     transcript_id SERIAL PRIMARY KEY,
-                    call_id INT REFERENCES calls(call_id) ON DELETE CASCADE,
+                    workflow_id TEXT REFERENCES calls(workflow_id) ON DELETE CASCADE,
                     transcript_text TEXT ,
                     translated_text TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -45,7 +45,7 @@ def create_tables(connection):
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS analyses (
                     analysis_id SERIAL PRIMARY KEY,
-                    call_id INT REFERENCES calls(call_id) ON DELETE CASCADE,
+                    workflow_id TEXT REFERENCES calls(workflow_id) ON DELETE CASCADE,
                     topic TEXT,
                     abstract_summary TEXT,
                     key_points TEXT,
@@ -56,21 +56,33 @@ def create_tables(connection):
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS agent_executions (
+                    execution_id SERIAL PRIMARY KEY,
+                    workflow_id TEXT,
+                    agent_name TEXT,
+                    start_time TIMESTAMP,
+                    end_time TIMESTAMP, 
+                    execution_time_ms INT,
+                    status TEXT,
+                    error_message TEXT
+                );
+            """)
             connection.commit()
             print("✅ Tables created successfully")
         except Exception as e:
             print(f"❌ Error creating tables: {e}")
             connection.rollback()
 
-def insert_data_calls(file_key,file_size,uploaded_at):
+def insert_data_calls(workflow_id,file_key,file_size,uploaded_at):
     try:
         connection=connect_to_rds()
         with connection.cursor() as cursor:
             create_tables(connection)
             cursor.execute("""
-                INSERT INTO calls(file_name,file_size,uploaded_at)
-                VALUES (%s,%s,%s)
-            """, (file_key,file_size,uploaded_at))
+                INSERT INTO calls(workflow_id,file_name,file_size,uploaded_at)
+                VALUES (%s,%s,%s,%s)
+            """, (workflow_id, file_key, file_size, uploaded_at))
             connection.commit()
             print("Data inserted successfully!")
     except Exception as e:
@@ -78,27 +90,27 @@ def insert_data_calls(file_key,file_size,uploaded_at):
         if 'connection' in locals():
             connection.rollback()
 
-def get_call_id(file_key):
+def get_workflow_id(file_key):
     try:
         connection=connect_to_rds()
         with connection.cursor() as cursor:
             cursor.execute("""
-                SELECT call_id FROM calls WHERE file_name = %s
+                SELECT workflow_id FROM calls WHERE file_key = %s
             """, (file_key,))
             return cursor.fetchone()[0]
     except Exception as e:
-        print(f"Error getting call id: {e}")
+        print(f"Error getting workflow id: {e}")
         return None
 
-def insert_data_transcripts(file_key,transcript_text,translated_text,created_at):
+def insert_data_transcripts(workflow_id,file_key,transcript_text,translated_text,created_at):
     try:
         connection=connect_to_rds()
         
         with connection.cursor() as cursor:
             cursor.execute("""
-                INSERT INTO transcripts(call_id,transcript_text,translated_text,created_at)
+                INSERT INTO transcripts(workflow_id,file_key,transcript_text,translated_text,created_at)
                 VALUES (%s,%s,%s,%s)
-            """, (get_call_id(file_key),transcript_text,translated_text,created_at))
+            """, (get_workflow_id(file_key),transcript_text,translated_text,created_at))
             connection.commit()
             print("Data inserted successfully!")
     except Exception as e:
@@ -106,14 +118,14 @@ def insert_data_transcripts(file_key,transcript_text,translated_text,created_at)
         if 'connection' in locals():
             connection.rollback()
 
-def insert_data_analyses(file_key,topic,abstract_summary,key_points,action_items,sentiment_label,sentiment_scores,embeddings):
+def insert_data_analyses(workflow_id,file_key,topic,abstract_summary,key_points,action_items,sentiment_label,sentiment_scores,embeddings):
     try:
         connection=connect_to_rds()
         with connection.cursor() as cursor:
             cursor.execute("""
-                INSERT INTO analyses(call_id,topic,abstract_summary,key_points,action_items,sentiment_label,sentiment_scores,embeddings)
+                INSERT INTO analyses(workflow_id,file_key,topic,abstract_summary,key_points,action_items,sentiment_label,sentiment_scores,embeddings)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
-            """, (get_call_id(file_key),topic,abstract_summary,key_points,action_items,sentiment_label,sentiment_scores,embeddings))
+            """, (get_workflow_id(file_key),topic,abstract_summary,key_points,action_items,sentiment_label,sentiment_scores,embeddings))
             connection.commit()
             print("Data inserted successfully!")
     except Exception as e:
@@ -121,7 +133,7 @@ def insert_data_analyses(file_key,topic,abstract_summary,key_points,action_items
         if 'connection' in locals():
             connection.rollback()
 
-def insert_data_all(file_key, file_size, uploaded_at,
+def insert_data_all(workflow_id,file_key, file_size, uploaded_at,
                     transcription=None, translation=None,
                     topic=None, summary=None, key_points=None,
                     action_items=None, sentiment_label=None,
@@ -136,26 +148,30 @@ def insert_data_all(file_key, file_size, uploaded_at,
         with connection.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
 
             # Insert into calls and get call_id
+            create_tables(connection)
+            print("Tables created successfully!")
+
+
             cursor.execute("""
-                INSERT INTO calls(file_name, file_size, uploaded_at)
+                INSERT INTO calls(workflow_id,file_key, file_size, uploaded_at)
                 VALUES (%s, %s, %s)
-                RETURNING call_id
-            """, (file_key, file_size, uploaded_at))
+                RETURNING workflow_id
+            """, (workflow_id,file_key, file_size, uploaded_at))
 
             result = cursor.fetchone()
             if not result:
-                print("ERROR: No call_id returned from INSERT")
+                print("ERROR: No workflow_id returned from INSERT")
                 connection.rollback()
                 return
 
-            call_id = result['call_id']
+            workflow_id = result['workflow_id']
 
             # Insert transcript if available
             if transcription or translation:
                 cursor.execute("""
-                    INSERT INTO transcripts(call_id, transcript_text, translated_text, created_at)
+                    INSERT INTO transcripts(workflow_id, transcript_text, translated_text, created_at)
                     VALUES (%s, %s, %s, NOW())
-                """, (call_id, transcription, translation))
+                """, (workflow_id, transcription, translation))
 
             # Insert analysis if any field is provided
             if any([topic, summary, key_points, action_items, sentiment_label, sentiment_scores, embeddings]):
@@ -168,11 +184,11 @@ def insert_data_all(file_key, file_size, uploaded_at,
 
                 cursor.execute("""
                     INSERT INTO analyses(
-                        call_id, topic, abstract_summary, key_points, action_items,
+                        workflow_id, topic, abstract_summary, key_points, action_items,
                         sentiment_label, sentiment_scores, embeddings
                     )
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s::vector)
-                """, (call_id, topic, summary, key_points, action_items, sentiment_label, sentiment_scores, embeddings))
+                """, (workflow_id, topic, summary, key_points, action_items, sentiment_label, sentiment_scores, embeddings))
 
             # Commit once at the end
             connection.commit()

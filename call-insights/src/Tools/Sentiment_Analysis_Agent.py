@@ -7,9 +7,9 @@ from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 from dotenv import load_dotenv
 import os
-from utils.openai_utils import safe_model_invoke
+from src.utils.openai_utils import safe_model_invoke
 from langchain_core.messages import SystemMessage
-from utils.prompt_templates import Sentiment_Analysis_Model_Template
+from src.utils.prompt_templates import Sentiment_Analysis_Model_Template
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_openai import ChatOpenAI
 
@@ -23,8 +23,16 @@ def sentiment_analysis(text: str):
     """Analyze the sentiment of the text"""
     try:
         model_name = os.getenv("SENTIMENT_ANALYSIS_MODEL_NAME")
+        if not model_name:
+            logger.error("SENTIMENT_ANALYSIS_MODEL_NAME environment variable not set")
+            return {"error": "Sentiment analysis model not configured"}
+        
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         model = AutoModelForSequenceClassification.from_pretrained(model_name)
+        
+        # Truncate text to fit within token limit (512 tokens)
+        # Tokenize and truncate if needed
+        tokens = tokenizer.encode(text, truncation=True, max_length=512, return_tensors="pt")
         
         # Try GPU first, fallback to CPU if not available
         try:
@@ -33,7 +41,9 @@ def sentiment_analysis(text: str):
             logger.warning("GPU not available, falling back to CPU")
             sentiment_analyzer = pipeline("sentiment-analysis", model=model, tokenizer=tokenizer, device=-1)
         
-        result = sentiment_analyzer(text)
+        # Use truncated text for analysis
+        truncated_text = tokenizer.decode(tokens[0], skip_special_tokens=True)
+        result = sentiment_analyzer(truncated_text)
         logger.info(f"Sentiment analysis result: {result}")
         return result
     except Exception as e:

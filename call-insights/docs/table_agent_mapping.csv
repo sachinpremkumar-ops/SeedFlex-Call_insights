@@ -1,0 +1,4 @@
+Table Name,Purpose,Agent-to-Table Mappings,Agent Step
+calls,Stores basic information about each audio call file,Storage Agent writes file_name file_size uploaded_at,Final step - stores call metadata
+transcripts,Stores transcription and translation data for each call,Storage Agent writes transcript_text translated_text,Final step - stores speech processing results
+analyses,Stores AI-generated analysis results for each call,Storage Agent writes topic abstract_summary key_points action_items sentiment_label sentiment_scores embeddings,Final step - stores all AI analysis results
